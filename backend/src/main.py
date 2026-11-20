@@ -11,7 +11,7 @@ from .schemas import *
 from .common import lock,inventory_lock,pack,add,audit
 from .auth import current,writer,supervisor,verify,token
 from .middleware import Trace,Burst
-from . import pack_service as packs,circulation_service as circulation
+from . import pack_service as packs,circulation_service as circulation,recheck_service as recheck
 q=redis.Redis.from_url(os.environ['REDIS_URL'],decode_responses=True)
 @asynccontextmanager
 async def lifespan(app):
@@ -35,7 +35,7 @@ def login(d:Login,s=Depends(session)):
 def me(u=Depends(current)):return {'email':u.email,'role':u.role}
 @app.get('/archive')
 def archive(s=Depends(session),u=Depends(current)):
-    return {m.__tablename__:[pack(x)for x in s.scalars(select(m).order_by(m.id))]for m in (Edition,Compatibility,Classroom,Student,Copy,Inspection,Pack,PackLine,Assignment,Purchase,Account,DepositEntry)}
+    return {m.__tablename__:[pack(x)for x in s.scalars(select(m).order_by(m.id))]for m in (Edition,Compatibility,Classroom,Student,Copy,Inspection,Pack,PackLine,Assignment,Purchase,Account,DepositEntry,RecheckBatch,RecheckItem)}
 @app.get('/audits')
 def audits(s=Depends(session),u=Depends(current)):return [pack(x)for x in s.scalars(select(Audit).order_by(Audit.id.desc()).limit(50))]
 @app.post('/editions')
@@ -66,9 +66,20 @@ def copy(d:CopyInput,s=Depends(session),u=Depends(writer)):
     x=add(s,Copy(**d.model_dump()));audit(s,u,'回收单本待检 '+d.barcode);s.commit();return x
 @app.post('/copies/{id}/inspect')
 def inspect(id:int,d:InspectionInput,s=Depends(session),u=Depends(writer)):
-    inventory_lock(s);x=lock(s,Copy,id)
-    if x.state not in ('uninspected','available','repair'):raise HTTPException(409,'预留/在借/遗失书不能覆盖书况')
-    x.condition=d.condition;x.state='available'if d.condition=='usable'else'repair';entry=add(s,Inspection(copy_id=id,**d.model_dump()));audit(s,u,'检查或修复书况 '+x.barcode);s.commit();return {'copy':pack(x),'inspection':entry}
+    inventory_lock(s);x=lock(s,Copy,id);item=None
+    if x.state=='recheck':
+        item=recheck.held_item(s,id)
+        if not item:raise HTTPException(409,'该册在当班待检批次中，关批留检后才可验级')
+    elif x.state not in ('uninspected','available','repair'):raise HTTPException(409,'预留/在借/遗失书不能覆盖书况')
+    x.condition=d.condition;x.state='available'if d.condition=='usable'else'repair'
+    if item:item.result=d.condition
+    entry=add(s,Inspection(copy_id=id,**d.model_dump()));audit(s,u,'检查或修复书况 '+x.barcode);s.commit();return {'copy':pack(x),'inspection':entry}
+@app.post('/recheck-batches/{id}/quota')
+def quota(id:int,d:QuotaInput,s=Depends(session),u=Depends(writer)):
+    x=recheck.set_quota(s,id,d,u);s.commit();return x
+@app.post('/recheck-batches/{id}/close')
+def close_batch(id:int,s=Depends(session),u=Depends(writer)):
+    x=recheck.close(s,id,u);s.commit();return x
 @app.post('/packs')
 def pack_new(d:PackInput,s=Depends(session),u=Depends(writer)):
     x=packs.create(s,d,u);s.commit();return x

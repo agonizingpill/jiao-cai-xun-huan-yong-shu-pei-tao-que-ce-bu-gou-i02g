@@ -21,3 +21,9 @@ class DepositInput(BaseModel):amount_cents:int=Field(ge=100,le=1000000);receipt:
 class ReturnInput(BaseModel):condition:Literal['usable','repair'];damage_cents:int=Field(default=0,ge=0,le=100000);note:str=Field(min_length=4,max_length=250);receipt:str=Field(min_length=4,max_length=80)
 class LossInput(BaseModel):damage_cents:int=Field(ge=1,le=100000);note:str=Field(min_length=6,max_length=250);receipt:str=Field(min_length=4,max_length=80)
 class SettlementInput(BaseModel):receipt:str=Field(min_length=4,max_length=80)
+class QuotaInput(BaseModel):
+    quota:int=Field(ge=0,le=500);sample_quota:int=Field(ge=0,le=500)
+    @model_validator(mode='after')
+    def fit(self):
+        if self.sample_quota>self.quota:raise ValueError('抽签名额不能超过复检名额')
+        return self

@@ -2,6 +2,7 @@ from sqlalchemy import select,func
 from fastapi import HTTPException
 from .models import Edition,Student,Account,DepositEntry,Pack,PackLine,Copy,Assignment
 from .common import inventory_lock,compatible,lock,add,pack,audit
+from . import recheck_service as recheck
 
 def account_for(s,student,term):
     x=s.scalar(select(Account).where(Account.student_id==student,Account.term==term).with_for_update().execution_options(populate_existing=True))
@@ -28,7 +29,9 @@ def return_book(s,id,d,u,exchange=False):
     if a.state!='issued':raise HTTPException(409,'只有在借书可退换，不可重复退书')
     acc=account_for(s,a.student_id,p.term)
     if d.condition=='usable'and d.damage_cents:raise HTTPException(409,'完好回收不收损耗费')
-    charge(s,acc,a,d.damage_cents,d.receipt,d.note);copy=lock(s,Copy,a.copy_id);copy.condition=d.condition;copy.state='available'if d.condition=='usable'else'repair';a.state='returned';a.note=d.note
+    charge(s,acc,a,d.damage_cents,d.receipt,d.note);copy=lock(s,Copy,a.copy_id);copy.condition=d.condition;a.state='returned';a.note=d.note
+    if d.condition=='usable':recheck.hold(s,copy,a)
+    else:copy.state='repair'
     if exchange:
         # Exclude the just-returned copy: a real physical exchange requires another book.
         replacement=s.scalar(select(Copy).where(Copy.edition_id.in_(compatible(s,line.edition_id)),Copy.condition=='usable',Copy.state=='available',Copy.id!=copy.id).order_by(Copy.id).with_for_update())

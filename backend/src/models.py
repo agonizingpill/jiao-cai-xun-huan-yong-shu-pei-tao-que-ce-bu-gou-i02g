@@ -1,4 +1,4 @@
-from sqlalchemy import Column,Integer,String,ForeignKey,JSON,UniqueConstraint,CheckConstraint
+from sqlalchemy import Column,Integer,String,Float,Boolean,ForeignKey,JSON,UniqueConstraint,CheckConstraint
 from .db import Base
 from .constants import COPY_CONDITIONS,PACK_STATES,ASSIGNMENT_STATES
 class User(Base):
@@ -50,3 +50,9 @@ class DepositEntry(Base):
 class HistoricalBasket(Base):
     __tablename__='historical_baskets'
     id=Column(Integer,primary_key=True);code=Column(String(40),unique=True,nullable=False);subjects=Column(JSON,nullable=False)
+class RecheckBatch(Base):
+    __tablename__='recheck_batches'
+    id=Column(Integer,primary_key=True);code=Column(String(60),unique=True,nullable=False);state=Column(String(20),default='open');quota=Column(Integer,nullable=False,default=0);sample_quota=Column(Integer,nullable=False,default=0)
+class RecheckItem(Base):
+    __tablename__='recheck_items'
+    id=Column(Integer,primary_key=True);batch_id=Column(Integer,ForeignKey('recheck_batches.id'),nullable=False);copy_id=Column(Integer,ForeignKey('copies.id'),nullable=False);assignment_id=Column(Integer,ForeignKey('assignments.id'));turnover=Column(Integer);probability=Column(Float);sampled=Column(Boolean,default=False);disposition=Column(String(20),default='pending');reason=Column(String(250),default='');result=Column(String(20))

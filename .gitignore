@@ -24,6 +24,7 @@ out/
 .vite/
 .parcel-cache/
 coverage/
+test-artifacts/
 venv/
 target/
 *.o
